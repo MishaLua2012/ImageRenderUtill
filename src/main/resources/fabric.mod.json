@@ -1,0 +1,35 @@
+{
+	"schemaVersion": 1,
+	"id": "imagerenderutill",
+	"version": "${version}",
+	"name": "ImageRenderUtill",
+	"description": "Библиотека-утилита для отображения 2D-изображений (.png) поверх HUD: статичные картинки с заданной позицией/размером, перетаскиваемые мышкой в чате картинки с сохранением позиции, и наложение картинки на картинку (overlay).",
+	"authors": [
+		"wantop"
+	],
+	"contact": {
+		"homepage": "https://github.com/wantop/ImageRenderUtill",
+		"sources": "https://github.com/wantop/ImageRenderUtill",
+		"issues": "https://github.com/wantop/ImageRenderUtill/issues"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/imagerenderutill/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"dev.wantop.client.ImageRenderUtillClient"
+		]
+	},
+	"mixins": [
+		{
+			"config": "imagerenderutill.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~1.21.4",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
