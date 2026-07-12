@@ -1,0 +1,122 @@
+# Automatically build the project and run any configured tests for every push
+# and submitted pull request. This can help catch issues that only occur on
+# certain platforms or Java versions, and provides a first line of defence
+# against bad commits.
+#
+# On every push to main, additionally publishes a GitHub Release with the
+# built jar attached. Versions follow the scheme 1.1, 1.2, 1.3, 1.4, 1.5,
+# 2.1, 2.2 ... — minor resets to 1 and major increments after .5.
+
+name: build
+on: [pull_request, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'microsoft'
+
+      - name: compute version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Считаем количество уже опубликованных релизов, чтобы получить
+          # порядковый номер следующего: 1 -> 1.1, 6 -> 2.1, 11 -> 3.1 и т.д.
+          COUNT=$(gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName --jq 'length' 2>/dev/null || echo 0)
+          NEXT=$((COUNT + 1))
+          MAJOR=$(( (NEXT - 1) / 5 + 1 ))
+          MINOR=$(( (NEXT - 1) % 5 + 1 ))
+          VERSION="${MAJOR}.${MINOR}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION (release #$NEXT)"
+
+      - name: apply version
+        run: |
+          sed -i "s/^mod_version=.*/mod_version=${{ steps.version.outputs.version }}/" gradle.properties
+
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: build
+        run: ./gradlew build
+
+      - name: capture build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: iru-${{ steps.version.outputs.version }}
+          path: build/libs/*.jar
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: download build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: iru-${{ needs.build.outputs.version }}
+          path: build/libs/
+
+      - name: generate changelog
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREV_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+
+          {
+            echo "## 🧩 IRU — v${{ needs.build.outputs.version }}"
+            echo ""
+            echo "### 📦 Что нового"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges
+            else
+              git log --pretty=format:"- %s (%h)" --no-merges
+            fi
+            echo ""
+            echo ""
+            echo "### ⬇️ Установка"
+            echo ""
+            echo "1. Скачай \`.jar\` файл ниже"
+            echo "2. Положи в папку \`mods\` (Fabric, Minecraft 1.21.8)"
+            echo "3. Убедись, что установлен [Fabric API](https://modrinth.com/mod/fabric-api)"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Полный список изменений:** https://github.com/${{ github.repository }}/compare/${PREV_TAG}...v${{ needs.build.outputs.version }}"
+            fi
+          } > release_notes.md
+
+          cat release_notes.md
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: "v${{ needs.build.outputs.version }}"
+          body_path: release_notes.md
+          files: build/libs/*.jar
